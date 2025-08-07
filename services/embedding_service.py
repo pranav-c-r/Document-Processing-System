@@ -51,7 +51,10 @@ class EmbeddingService:
         except Exception as e:
             return [[0.1] * 768 for _ in texts]
 
-    def store_embeddings(self, documents: List[Document], document_type: str = "unknown") -> Dict[str, Any]:
+    def store_embeddings(self, documents: List[Document], user_id: str, document_type: str = "unknown") -> Dict[str, Any]:
+        """
+        Store embeddings with user_id metadata for user-specific vector separation.
+        """
         if not self.index:
             raise Exception("Pinecone index not initialized")
         try:
@@ -59,11 +62,12 @@ class EmbeddingService:
             embeddings = self.get_embeddings(texts)
             vectors = []
             for i, (doc, embedding) in enumerate(zip(documents, embeddings)):
-                vector_id = f"{doc.metadata['document_id']}_{doc.metadata['chunk_id']}"
+                vector_id = f"{user_id}_{doc.metadata['document_id']}_{doc.metadata['chunk_id']}"
                 vectors.append({
                     'id': vector_id,
                     'values': embedding,
                     'metadata': {
+                        'user_id': user_id,
                         'document_id': doc.metadata['document_id'],
                         'chunk_id': doc.metadata['chunk_id'],
                         'text': doc.page_content,
@@ -80,15 +84,22 @@ class EmbeddingService:
         except Exception as e:
             raise Exception(f"Error storing embeddings: {str(e)}")
 
-    def search_similar(self, query: str, top_k: int = 5, document_type: str = None) -> List[Dict[str, Any]]:
+    def search_similar(self, query: str, user_id: str, top_k: int = 5, document_type: str = None) -> List[Dict[str, Any]]:
+        """
+        Search for similar vectors, filtering by user_id for user-specific results.
+        """
         if not self.index:
             raise Exception("Pinecone index not initialized")
         try:
             query_embedding = self.get_embeddings([query])[0]
+            filter_query = {"user_id": {"$eq": user_id}}
+            if document_type:
+                filter_query["document_type"] = {"$eq": document_type}
             search_results = self.index.query(
                 vector=query_embedding,
                 top_k=top_k,
-                include_metadata=True
+                include_metadata=True,
+                filter=filter_query
             )
             results = []
             for match in search_results.matches:
@@ -104,7 +115,10 @@ class EmbeddingService:
         except Exception as e:
             raise Exception(f"Error searching embeddings: {str(e)}")
 
-    def delete_document_vectors(self, document_id: str) -> bool:
+    def delete_document_vectors(self, document_id: str, user_id: str) -> bool:
+        """
+        Delete vectors for a specific document and user.
+        """
         if not self.index:
             return False
         try:
@@ -112,7 +126,10 @@ class EmbeddingService:
                 vector=[0.1] * 768,
                 top_k=10000,
                 include_metadata=True,
-                filter={"document_id": {"$eq": document_id}}
+                filter={
+                    "document_id": {"$eq": document_id},
+                    "user_id": {"$eq": user_id}
+                }
             )
             if results.matches:
                 vector_ids = [match.id for match in results.matches]
