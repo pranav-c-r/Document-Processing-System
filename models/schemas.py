@@ -43,3 +43,6 @@ class EmbeddingResponse(BaseModel):
     chunks_processed: int
     vectors_stored: int
     message: str 
+
+class HackRxResponse(BaseModel):
+    results: List[Dict[str, str]] 

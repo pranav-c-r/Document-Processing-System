@@ -97,8 +97,8 @@ async def embed_document(request: EmbeddingRequest):
         
         chunks = document_chunks[request.document_id]
         
-        # Store embeddings in Pinecone
-        result = embedding_service.store_embeddings(chunks, request.document_type)
+        # Store embeddings in Pinecone (add user_id)
+        result = embedding_service.store_embeddings(chunks, user_id="default_user", document_type=request.document_type)
         
         return EmbeddingResponse(
             document_id=request.document_id,
@@ -115,9 +115,10 @@ async def embed_document(request: EmbeddingRequest):
 async def query_document(request: QueryRequest):
     """Query a document with a natural language question"""
     try:
-        # Search for relevant chunks using embedding service
+        # Search for relevant chunks using embedding service (add user_id)
         search_results = embedding_service.search_similar(
             query=request.question,
+            user_id="default_user",
             top_k=5,
             document_type=request.document_type
         )
