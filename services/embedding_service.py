@@ -51,9 +51,9 @@ class EmbeddingService:
         except Exception as e:
             return [[0.1] * 768 for _ in texts]
 
-    def store_embeddings(self, documents: List[Document], user_id: str, document_type: str = "unknown") -> Dict[str, Any]:
+    def store_embeddings(self, documents: List[Document], user_id: str, document_type: str = "unknown", session_id: str = None) -> Dict[str, Any]:
         """
-        Store embeddings with user_id metadata for user-specific vector separation.
+        Store embeddings with user_id and session_id metadata for proper document isolation.
         """
         if not self.index:
             raise Exception("Pinecone index not initialized")
@@ -63,38 +63,61 @@ class EmbeddingService:
             vectors = []
             for i, (doc, embedding) in enumerate(zip(documents, embeddings)):
                 vector_id = f"{user_id}_{doc.metadata['document_id']}_{doc.metadata['chunk_id']}"
+                metadata = {
+                    'user_id': user_id,
+                    'document_id': doc.metadata['document_id'],
+                    'chunk_id': doc.metadata['chunk_id'],
+                    'text': doc.page_content,
+                    'document_type': document_type,
+                    'filename': doc.metadata.get('filename', '')
+                }
+                
+                # Add session_id if provided for better isolation
+                if session_id:
+                    metadata['session_id'] = session_id
+                    vector_id = f"{session_id}_{doc.metadata['document_id']}_{doc.metadata['chunk_id']}"
+                
                 vectors.append({
                     'id': vector_id,
                     'values': embedding,
-                    'metadata': {
-                        'user_id': user_id,
-                        'document_id': doc.metadata['document_id'],
-                        'chunk_id': doc.metadata['chunk_id'],
-                        'text': doc.page_content,
-                        'document_type': document_type,
-                        'filename': doc.metadata.get('filename', '')
-                    }
+                    'metadata': metadata
                 })
             self.index.upsert(vectors=vectors)
             return {
                 "vectors_stored": len(vectors),
                 "document_id": documents[0].metadata["document_id"],
-                "document_type": document_type
+                "document_type": document_type,
+                "session_id": session_id
             }
         except Exception as e:
             raise Exception(f"Error storing embeddings: {str(e)}")
 
-    def search_similar(self, query: str, user_id: str, top_k: int = 5, document_type: str = None) -> List[Dict[str, Any]]:
+    def search_similar(self, query: str, user_id: str, top_k: int = 5, document_type: str = None, 
+                      document_id: str = None, session_id: str = None) -> List[Dict[str, Any]]:
         """
-        Search for similar vectors, filtering by user_id for user-specific results.
+        Search for similar vectors with proper document isolation.
+        - If document_id is provided, only search within that specific document
+        - If session_id is provided, only search within that session
+        - Otherwise, search within the user's documents
         """
         if not self.index:
             raise Exception("Pinecone index not initialized")
         try:
             query_embedding = self.get_embeddings([query])[0]
+            
+            # Build filter query based on provided parameters
             filter_query = {"user_id": {"$eq": user_id}}
+            
+            if document_id:
+                # Search only within specific document
+                filter_query["document_id"] = {"$eq": document_id}
+            elif session_id:
+                # Search only within specific session
+                filter_query["session_id"] = {"$eq": session_id}
+            
             if document_type:
                 filter_query["document_type"] = {"$eq": document_type}
+            
             search_results = self.index.query(
                 vector=query_embedding,
                 top_k=top_k,
@@ -109,15 +132,44 @@ class EmbeddingService:
                     "text": match.metadata.get('text', ''),
                     "document_id": match.metadata.get('document_id', ''),
                     "chunk_id": match.metadata.get('chunk_id', ''),
-                    "document_type": match.metadata.get('document_type', 'unknown')
+                    "document_type": match.metadata.get('document_type', 'unknown'),
+                    "session_id": match.metadata.get('session_id', '')
                 })
             return results
         except Exception as e:
             raise Exception(f"Error searching embeddings: {str(e)}")
 
-    def delete_document_vectors(self, document_id: str, user_id: str) -> bool:
+    def delete_document_vectors(self, document_id: str, user_id: str, session_id: str = None) -> bool:
         """
         Delete vectors for a specific document and user.
+        """
+        if not self.index:
+            return False
+        try:
+            filter_query = {
+                "document_id": {"$eq": document_id},
+                "user_id": {"$eq": user_id}
+            }
+            
+            if session_id:
+                filter_query["session_id"] = {"$eq": session_id}
+            
+            results = self.index.query(
+                vector=[0.1] * 768,
+                top_k=10000,
+                include_metadata=True,
+                filter=filter_query
+            )
+            if results.matches:
+                vector_ids = [match.id for match in results.matches]
+                self.index.delete(ids=vector_ids)
+            return True
+        except Exception as e:
+            return False
+
+    def delete_session_vectors(self, session_id: str, user_id: str) -> bool:
+        """
+        Delete all vectors for a specific session and user.
         """
         if not self.index:
             return False
@@ -127,7 +179,7 @@ class EmbeddingService:
                 top_k=10000,
                 include_metadata=True,
                 filter={
-                    "document_id": {"$eq": document_id},
+                    "session_id": {"$eq": session_id},
                     "user_id": {"$eq": user_id}
                 }
             )

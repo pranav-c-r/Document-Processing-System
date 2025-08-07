@@ -3,6 +3,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from routers import document_router
 import requests
 import os
+import uuid
 from typing import List
 from pydantic import BaseModel
 
@@ -35,6 +36,9 @@ async def hackrx_run(request: HackRxRequest, token: str = Depends(verify_token))
     Accepts a JSON body with 'documents' (URL to PDF) and 'questions' (list of strings).
     Returns answers for each question in the required format.
     """
+    # Generate unique session ID for this request to isolate documents
+    session_id = f"hackrx_{uuid.uuid4().hex[:8]}"
+    
     # Download PDF from URL
     try:
         response = requests.get(request.documents, timeout=30)
@@ -58,7 +62,14 @@ async def hackrx_run(request: HackRxRequest, token: str = Depends(verify_token))
         result = doc_processor.process_document(file_content, filename, file_type)
         chunks = result["chunks"]
         document_id = result["document_id"]
-        embedding_service.store_embeddings(chunks, user_id="hackrx", document_type="unknown")
+        
+        # Store embeddings with session isolation
+        embedding_service.store_embeddings(
+            chunks, 
+            user_id="hackrx", 
+            document_type="unknown",
+            session_id=session_id
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to process document: {str(e)}")
 
@@ -66,11 +77,24 @@ async def hackrx_run(request: HackRxRequest, token: str = Depends(verify_token))
     answers = []
     for question in request.questions:
         try:
-            similar_chunks = embedding_service.search_similar(question, user_id="hackrx", top_k=3)
+            # Search only within the current session to avoid cross-document contamination
+            similar_chunks = embedding_service.search_similar(
+                question, 
+                user_id="hackrx", 
+                top_k=3,
+                session_id=session_id
+            )
             context = [chunk["text"] for chunk in similar_chunks]
             llm_response = llm_service.generate_answer(question, context)
             answer = llm_response["answer"] if isinstance(llm_response, dict) and "answer" in llm_response else str(llm_response)
         except Exception as e:
             answer = f"Error: {str(e)}"
         answers.append(answer)
+    
+    # Clean up session vectors after processing
+    try:
+        embedding_service.delete_session_vectors(session_id, "hackrx")
+    except Exception as e:
+        print(f"Warning: Could not clean up session vectors: {e}")
+    
     return HackRxResponse(answers=answers) 

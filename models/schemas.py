@@ -11,6 +11,8 @@ class DocumentUploadResponse(BaseModel):
 class QueryRequest(BaseModel):
     question: str
     document_type: Optional[str] = "unknown"  # "known" or "unknown"
+    document_id: Optional[str] = None  # Specific document to query
+    session_id: Optional[str] = None  # Session for document isolation
 
 class ScoreDetails(BaseModel):
     document_type: str
@@ -24,6 +26,7 @@ class QueryResponse(BaseModel):
     matched_clauses: List[str]
     score_details: ScoreDetails
     confidence: float
+    document_id: Optional[str] = None  # Document that was queried
 
 class DocumentMetadata(BaseModel):
     document_id: str
@@ -36,6 +39,7 @@ class DocumentMetadata(BaseModel):
 class EmbeddingRequest(BaseModel):
     document_id: str
     document_type: str = "unknown"
+    session_id: Optional[str] = None  # Session for document isolation
 
 class EmbeddingResponse(BaseModel):
     document_id: str
@@ -45,4 +49,13 @@ class EmbeddingResponse(BaseModel):
     message: str 
 
 class HackRxResponse(BaseModel):
-    results: List[Dict[str, str]] 
+    results: List[Dict[str, str]]
+
+class SessionRequest(BaseModel):
+    session_id: str
+    description: Optional[str] = None
+
+class SessionResponse(BaseModel):
+    session_id: str
+    status: str
+    message: str 
