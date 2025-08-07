@@ -12,7 +12,7 @@ class LLMService:
         if api_key and api_key != "your_google_api_key_here":
             try:
                 genai.configure(api_key=api_key)
-                self.model = genai.GenerativeModel('gemini-1.5-pro')
+                self.model = genai.GenerativeModel('gemini-1.5-flash')
                 self.api_available = True
                 print("✅ Gemini API initialized successfully")
             except Exception as e:
@@ -28,11 +28,29 @@ class LLMService:
         """Create a structured prompt for the LLM"""
         
         # Determine weights based on document type
-        document_weight = 2.0 if document_type == "unknown" else 0.5
-        question_weight = 2.0  # Default question weight, can be customized
+        if document_type == "Policy Wordings":
+            document_weight = 0.5
+            instruction = "Focus on policy terms, coverage details, exclusions, and conditions."
+        elif document_type == "Legal Documents":
+            document_weight = 0.5
+            instruction = "Focus on legal clauses, obligations, rights, and legal implications."
+        elif document_type == "Financial Documents":
+            document_weight = 0.5
+            instruction = "Focus on financial data, revenue, expenses, and financial metrics."
+        elif document_type == "Technical Documents":
+            document_weight = 0.5
+            instruction = "Focus on technical specifications, requirements, and implementation details."
+        elif document_type == "Medical Documents":
+            document_weight = 0.5
+            instruction = "Focus on medical information, diagnoses, treatments, and patient care."
+        else:
+            document_weight = 2.0  # Unknown documents get higher weight
+            instruction = "Analyze the general content and provide comprehensive answers."
+        
+        question_weight = 2.0  # Default question weight
         
         prompt = f"""
-You are an intelligent document analysis assistant. Your task is to answer questions based on the provided document context and return a structured JSON response.
+You are an intelligent document analysis assistant specializing in {document_type} documents. Your task is to answer questions based on the provided document context and return a structured JSON response.
 
 CONTEXT FROM DOCUMENT:
 {chr(10).join([f"Chunk {i+1}: {chunk}" for i, chunk in enumerate(context_chunks)])}
@@ -43,12 +61,16 @@ DOCUMENT TYPE: {document_type}
 DOCUMENT WEIGHT: {document_weight}
 QUESTION WEIGHT: {question_weight}
 
-INSTRUCTIONS:
+SPECIALIZED INSTRUCTIONS FOR {document_type}:
+{instruction}
+
+GENERAL INSTRUCTIONS:
 1. Analyze the provided context carefully
 2. Answer the question based ONLY on the information in the context
 3. If the information is not found in the context, say "Information not found in the provided document"
 4. Provide specific references to clauses/sections when possible
-5. Return a structured JSON response with the following format:
+5. Be precise and accurate in your response
+6. Return a structured JSON response with the following format:
 
 {{
     "answer": "Your detailed answer here",
@@ -116,7 +138,13 @@ JSON RESPONSE:
     
     def _create_structured_response(self, response_text: str, question: str, document_type: str) -> Dict[str, Any]:
         """Create a structured response when JSON parsing fails"""
-        document_weight = 2.0 if document_type == "unknown" else 0.5
+        if document_type == "Policy Wordings":
+            document_weight = 0.5
+        elif document_type in ["Legal Documents", "Financial Documents", "Technical Documents", "Medical Documents"]:
+            document_weight = 0.5
+        else:
+            document_weight = 2.0
+        
         question_weight = 2.0
         
         # Extract answer from response text
@@ -126,7 +154,7 @@ JSON RESPONSE:
         
         return {
             "answer": answer,
-            "justification": "Response generated from document context using Gemini AI.",
+            "justification": f"Response generated from {document_type} context using Gemini AI.",
             "matched_clauses": ["Document context chunks"],
             "score_details": {
                 "document_type": document_type,
@@ -139,7 +167,13 @@ JSON RESPONSE:
     
     def _create_error_response(self, error_message: str, document_type: str) -> Dict[str, Any]:
         """Create an error response"""
-        document_weight = 2.0 if document_type == "unknown" else 0.5
+        if document_type == "Policy Wordings":
+            document_weight = 0.5
+        elif document_type in ["Legal Documents", "Financial Documents", "Technical Documents", "Medical Documents"]:
+            document_weight = 0.5
+        else:
+            document_weight = 2.0
+        
         question_weight = 2.0
         
         return {
@@ -157,5 +191,10 @@ JSON RESPONSE:
     
     def calculate_score(self, document_type: str, question_weight: float = 2.0) -> float:
         """Calculate score based on document type and question weight"""
-        document_weight = 2.0 if document_type == "unknown" else 0.5
+        if document_type == "Policy Wordings":
+            document_weight = 0.5
+        elif document_type in ["Legal Documents", "Financial Documents", "Technical Documents", "Medical Documents"]:
+            document_weight = 0.5
+        else:
+            document_weight = 2.0
         return question_weight * document_weight 

@@ -100,13 +100,13 @@ async def upload_document(file: UploadFile = File(...), session_id: str = None):
             file_type=file_type
         )
         
-        # Store document metadata with session info
+        # Store document metadata with session info and detected document type
         document_store[result["document_id"]] = {
             "filename": result["filename"],
             "file_type": result["file_type"],
+            "document_type": result["document_type"],  # Use detected document type
             "total_chunks": result["total_chunks"],
             "upload_time": result["upload_time"].isoformat(),
-            "document_type": "unknown",  # Default to unknown
             "session_id": session_id
         }
         
@@ -121,7 +121,7 @@ async def upload_document(file: UploadFile = File(...), session_id: str = None):
             filename=result["filename"],
             document_id=result["document_id"],
             status="success",
-            message=f"Document processed successfully. {result['total_chunks']} chunks created."
+            message=f"Document processed successfully. {result['total_chunks']} chunks created. Detected type: {result['document_type']}"
         )
         
     except Exception as e:
@@ -140,12 +140,16 @@ async def embed_document(request: EmbeddingRequest):
             raise HTTPException(status_code=404, detail="Document chunks not found")
         
         chunks = document_chunks[request.document_id]
+        document_info = document_store[request.document_id]
+        
+        # Use detected document type if not specified
+        document_type = request.document_type if request.document_type != "unknown" else document_info["document_type"]
         
         # Store embeddings in Pinecone with session isolation
         result = embedding_service.store_embeddings(
             chunks, 
             user_id="default_user", 
-            document_type=request.document_type,
+            document_type=document_type,
             session_id=request.session_id
         )
         
@@ -154,7 +158,7 @@ async def embed_document(request: EmbeddingRequest):
             status="success",
             chunks_processed=result["vectors_stored"],
             vectors_stored=result["vectors_stored"],
-            message="Embeddings generated successfully"
+            message=f"Embeddings generated successfully for document type: {document_type}"
         )
         
     except Exception as e:
@@ -168,16 +172,28 @@ async def query_document(request: QueryRequest):
         search_params = {
             "query": request.question,
             "user_id": "default_user",
-            "top_k": 5,
-            "document_type": request.document_type
+            "top_k": 5
         }
         
         # If specific document_id is provided, search only within that document
         if request.document_id:
             search_params["document_id"] = request.document_id
+            # Get document type from stored metadata
+            if request.document_id in document_store:
+                document_type = document_store[request.document_id]["document_type"]
+            else:
+                document_type = "unknown"
         # If session_id is provided, search only within that session
         elif request.session_id:
             search_params["session_id"] = request.session_id
+            document_type = request.document_type
+        else:
+            # Search across all documents, use provided document type or "unknown"
+            document_type = request.document_type
+        
+        # Only add document_type filter if it's not "unknown" to avoid over-filtering
+        if document_type and document_type != "unknown":
+            search_params["document_type"] = document_type
         
         # Search for relevant chunks using embedding service
         search_results = embedding_service.search_similar(**search_params)
@@ -192,9 +208,9 @@ async def query_document(request: QueryRequest):
                 justification="The search did not return any relevant document chunks for your query.",
                 matched_clauses=[],
                 score_details={
-                    "document_type": request.document_type,
+                    "document_type": document_type,
                     "question_weight": 2.0,
-                    "document_weight": 2.0 if request.document_type == "unknown" else 0.5,
+                    "document_weight": 2.0 if document_type == "unknown" else 0.5,
                     "score": 0.0
                 },
                 confidence=0.0,
@@ -205,7 +221,7 @@ async def query_document(request: QueryRequest):
         llm_response = llm_service.generate_answer(
             question=request.question,
             context_chunks=context_chunks,
-            document_type=request.document_type
+            document_type=document_type
         )
         
         # Create response
