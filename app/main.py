@@ -45,8 +45,15 @@ from fastapi import Request
 @app.post("/webhook")
 async def railway_webhook(request: Request):
     data = await request.json()
-    # You can add custom logic here
-    return {"message": "Webhook received", "data": data}
+    # Forward the payload to webhook.site
+    import requests
+    webhook_url = "https://webhook.site/32ecf175-8bfc-4d66-9317-b84e0cb60b4f"
+    try:
+        resp = requests.post(webhook_url, json=data)
+        status = resp.status_code
+    except Exception as e:
+        return {"message": "Failed to forward webhook", "error": str(e)}
+    return {"message": "Webhook forwarded", "status_code": status}
     
     # Download PDF from URL
     try:
