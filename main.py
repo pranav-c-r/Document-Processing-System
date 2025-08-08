@@ -1,13 +1,13 @@
-# app/main.py
-
 from fastapi import FastAPI
 from routers import document_router
+from fastapi.responses import JSONResponse
 
 app = FastAPI()
 
-# Add your router (API route)
+# Register your router
 app.include_router(document_router.router)
 
-@app.post("/webhook")
-def home():
-    return {"message": "Document Processing API is up!"}
+# Webhook route (matches what HackRx or Railway expects)
+@app.post("/api/v1/hackrx/run")
+def webhook():
+    return JSONResponse(content={"message": "Webhook working!"})
