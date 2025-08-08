@@ -11,3 +11,9 @@ app.include_router(document_router.router)
 @app.post("/api/v1/hackrx/run")
 def webhook():
     return JSONResponse(content={"message": "Webhook working!"})
+if __name__ == "__main__":
+    import uvicorn
+    import os
+
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("main:app", host="0.0.0.0", port=port)
