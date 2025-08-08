@@ -8,6 +8,6 @@ app = FastAPI()
 # Add your router (API route)
 app.include_router(document_router.router)
 
-@app.get("/")
+@app.post("/webhook")
 def home():
     return {"message": "Document Processing API is up!"}
